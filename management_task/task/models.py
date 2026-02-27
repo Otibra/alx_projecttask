@@ -32,7 +32,7 @@ class Task(models.Model):
         default='PENDING'
     )
 
-     user = models.ForeignKey(User, on_delete = models.CASCADE, name='tasks')
+     user = models.ForeignKey(User, on_delete = models.CASCADE,related_name='tasks')
 
      def __str__(self):
         return self.title
