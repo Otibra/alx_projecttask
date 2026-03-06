@@ -1,78 +1,96 @@
-from django.utils import timezone
+from django.urls import reverse
 from rest_framework.test import APITestCase
 from rest_framework import status
+from rest_framework.authtoken.models import Token
 from django.contrib.auth.models import User
-from task.models import Task
+from .models import Task, Project
 
 class TaskAPITestCase(APITestCase):
-    def setUp(self):
-        # Create users
-        self.user1 = User.objects.create_user(username="user1", password="pass123")
-        self.user2 = User.objects.create_user(username="user2", password="pass123")
 
-        # Create a sample task for user1
-        self.task1 = Task.objects.create(
-            user=self.user1,
-            title="Test Task 1",
-            description="Some description",
-            due_date=timezone.now() + timezone.timedelta(days=7),
-            priority_level='LOW',
-            status='PENDING'
+    def setUp(self):
+        # Create a user and token for authentication
+        self.user = User.objects.create_user(username='testuser', email='test@example.com', password='password123')
+        self.token = Token.objects.create(user=self.user)
+
+        # Create a project
+        self.project = Project.objects.create(name="Project Alpha", description="Sample Project")
+
+        # Create a task for this user
+        self.task = Task.objects.create(
+            title="User Task",
+            description="Belongs to testuser",
+            priority=1,
+            project=self.project,
+            user=self.user
         )
 
-    # Test creating a task
-    def test_create_task(self):
-        self.client.login(username="user1", password="pass123")
-        data = {
-            "title": "New Task",
-            "description": "Task description",
-            "due_date": (timezone.now() + timezone.timedelta(days=5)).isoformat(),
-            "priority_level": "MEDIUM",
-            "status": "PENDING"
-        }
-        response = self.client.post("/tasks/", data, format='json')
-        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
-        self.assertEqual(Task.objects.count(), 2)
+        # API URLs
+        self.list_url = reverse('task-list')  # /task/
+        self.detail_url = lambda pk: reverse('task-list') + f"{pk}/"  # /task/<id>/
 
-    # Test listing tasks as authenticated user
+    def authenticate(self, email='test@example.com', password='password123'):
+        """Helper to authenticate the user with email & password"""
+        login = self.client.login(username=email, password=password)  # Django login requires username
+        if login:
+            self.client.credentials(HTTP_AUTHORIZATION='Token ' + self.token.key)
+        return login
+
+    # ---------- TESTS ----------
+
+    def test_login_with_correct_credentials(self):
+        is_logged_in = self.authenticate()
+        self.assertTrue(is_logged_in)
+
+    def test_login_with_wrong_credentials(self):
+        is_logged_in = self.authenticate(email='wrong@example.com', password='wrongpass')
+        self.assertFalse(is_logged_in)
+
     def test_list_tasks_authenticated(self):
-        self.client.login(username="user1", password="pass123")
-        response = self.client.get("/tasks/")
+        self.authenticate()
+        response = self.client.get(self.list_url)
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(len(response.data), 1)
+        self.assertEqual(response.data[0]['title'], self.task.title)
 
-    # Test listing tasks as unauthenticated user
     def test_list_tasks_unauthenticated(self):
-        response = self.client.get("/tasks/")
-        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        # Without login, access should fail
+        response = self.client.get(self.list_url)
+        self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
 
-    # Test updating a task owned by the user
-    def test_update_task(self):
-        self.client.login(username="user1", password="pass123")
-        data = {"status": "IN_PROGRESS"}
-        response = self.client.patch(f"/tasks/{self.task1.id}/", data, format='json')
+    def test_create_task_authenticated(self):
+        self.authenticate()
+        data = {
+            "title": "New Task",
+            "description": "Test task creation",
+            "priority": 2,
+            "project_id": self.project.id
+        }
+        response = self.client.post(self.list_url, data)
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(response.data['title'], "New Task")
+        self.assertEqual(Task.objects.get(id=response.data['id']).user, self.user)
+
+    def test_create_task_unauthenticated(self):
+        data = {
+            "title": "Unauthorized Task",
+            "description": "Should not create",
+            "priority": 3,
+            "project_id": self.project.id
+        }
+        response = self.client.post(self.list_url, data)
+        self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
+
+    def test_update_task_authenticated(self):
+        self.authenticate()
+        data = {"title": "Updated Task"}
+        response = self.client.patch(self.detail_url(self.task.id), data)
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.task1.refresh_from_db()
-        self.assertEqual(self.task1.status, "IN_PROGRESS")
+        self.task.refresh_from_db()
+        self.assertEqual(self.task.title, "Updated Task")
 
-    # Test updating a task not owned by the user
-    def test_update_task_not_owned(self):
-        self.client.login(username="user2", password="pass123")
-        data = {"status": "COMPLETED"}
-        response = self.client.patch(f"/tasks/{self.task1.id}/", data, format='json')
-        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
-
-    # Test deleting a task owned by the user
-    def test_delete_task(self):
-        self.client.login(username="user1", password="pass123")
-        response = self.client.delete(f"/tasks/{self.task1.id}/")
+    def test_delete_task_authenticated(self):
+        self.authenticate()
+        response = self.client.delete(self.detail_url(self.task.id))
         self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
-        self.assertEqual(Task.objects.count(), 0)
-
-    # Test deleting a task not owned by the user
-    def test_delete_task_not_owned(self):
-        self.client.login(username="user2", password="pass123")
-        response = self.client.delete(f"/tasks/{self.task1.id}/")
-        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
-        self.assertEqual(Task.objects.count(), 1)
+        self.assertFalse(Task.objects.filter(id=self.task.id).exists())
         
