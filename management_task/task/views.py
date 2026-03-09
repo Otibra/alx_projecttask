@@ -3,6 +3,8 @@ from rest_framework.authentication import TokenAuthentication
 from rest_framework.permissions import IsAuthenticated
 from .models import Task, Project
 from .serializers import TaskSerializer, ProjectSerializer
+from rest_framework.exceptions import PermissionDenied
+
 
 
 # Base view that applies authentication and filters tasks by the logged-in user
@@ -38,10 +40,14 @@ class TaskListCreateView(TaskBaseView, generics.ListCreateAPIView):
     # Default ordering (latest tasks first)
     ordering = ['-created_at']
 
+    
     def perform_create(self, serializer):
-        # Save the task instance
-        # The project is provided in the request body
-        # User ownership is enforced through the project relationship
+        project = serializer.validated_data.get('project')
+
+        # Ensure the project belongs to the authenticated user
+        if project.user != self.request.user:
+            raise PermissionDenied("You cannot create tasks in another user's project")
+
         serializer.save()
 
 
@@ -50,4 +56,3 @@ class TaskDetailView(TaskBaseView, generics.RetrieveUpdateDestroyAPIView):
 
     # Serializer used for task data
     serializer_class = TaskSerializer
-    
