@@ -3,7 +3,7 @@ from rest_framework.authentication import TokenAuthentication
 from rest_framework.permissions import IsAuthenticated
 from .models import Task, Project
 from .serializers import TaskSerializer, ProjectSerializer
-from rest_framework.exceptions import PermissionDenied
+from rest_framework.exceptions import PermissionDenied, ValidationError
 
 
 
@@ -43,6 +43,9 @@ class TaskListCreateView(TaskBaseView, generics.ListCreateAPIView):
     
     def perform_create(self, serializer):
         project = serializer.validated_data.get('project')
+        # Check if project was provided
+        if project is None:
+            raise ValidationError({"project": "Project field is required."})
 
         # Ensure the project belongs to the authenticated user
         if project.user != self.request.user:
