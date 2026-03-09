@@ -4,27 +4,50 @@ from rest_framework.permissions import IsAuthenticated
 from .models import Task, Project
 from .serializers import TaskSerializer, ProjectSerializer
 
-# Base view to apply authentication and user filtering
+
+# Base view that applies authentication and filters tasks by the logged-in user
 class TaskBaseView(generics.GenericAPIView):
+
+    # Require token authentication for all requests
     authentication_classes = [TokenAuthentication]
+
+    # Only authenticated users can access these views
     permission_classes = [IsAuthenticated]
 
     def get_queryset(self):
-        # Ensure only tasks belonging to the requesting user are returned
-        return Task.objects.filter(user=self.request.user)
+        # Return only tasks that belong to projects owned by the logged-in user
+        # Relationship: Task → Project → User
+        return Task.objects.filter(project__user=self.request.user)
 
-# List + Create tasks
+
+# View for listing all tasks and creating a new task
 class TaskListCreateView(TaskBaseView, generics.ListCreateAPIView):
+
+    # Serializer used to convert Task model data to JSON and validate input
     serializer_class = TaskSerializer
+
+    # Enable ordering and searching in the API
     filter_backends = [filters.OrderingFilter, filters.SearchFilter]
-    ordering_fields = ['created_at', 'title', 'priority']
+
+    # Fields that can be used for ordering results
+    ordering_fields = ['created_at', 'title', 'priority_level']
+
+    # Fields that can be searched using the search query parameter
     search_fields = ['title', 'description']
+
+    # Default ordering (latest tasks first)
     ordering = ['-created_at']
 
     def perform_create(self, serializer):
-        # Automatically set the user of the task to the authenticated user
-        serializer.save(user=self.request.user)
+        # Save the task instance
+        # The project is provided in the request body
+        # User ownership is enforced through the project relationship
+        serializer.save()
 
-# Retrieve / Update / Delete tasks
+
+# View for retrieving, updating, or deleting a specific task
 class TaskDetailView(TaskBaseView, generics.RetrieveUpdateDestroyAPIView):
+
+    # Serializer used for task data
     serializer_class = TaskSerializer
+    
