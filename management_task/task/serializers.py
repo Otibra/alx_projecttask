@@ -12,9 +12,17 @@ class ProjectSerializer(serializers.ModelSerializer):
 
 # Serializer for the Task model
 class TaskSerializer(serializers.ModelSerializer):
-    # Nest the ProjectSerializer to show project details in the Task output
-    project = ProjectSerializer(read_only=True)  # ✅ read_only prevents editing via this serializer
-
+    # Use PrimaryKeyRelatedField for write operations
+    project_id = serializers.PrimaryKeyRelatedField(
+        queryset=Project.objects.all(),  # ensures the ID exists
+        source='project',               # maps it to the model's project field
+        write_only=True                 # only needed for input
+    )
+    
+    # Keep nested project details for output
+    project = ProjectSerializer(read_only=True)
+    
     class Meta:
-        model = Task             # ✅ Specifies the model this serializer is for
-        fields = '__all__'       # ✅ Include all fields from the Task model
+        model = Task
+        fields = ['id', 'title', 'description', 'due_date', 'priority_level', 'status', 'project', 'project_id']
+        
